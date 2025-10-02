@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Itapay - Dashboard de Gestão</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-blue-600 to-blue-800 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <h1 class="text-4xl font-bold text-white">ITAPAY</h1>
+            <p class="text-blue-100 mt-2">Dashboard de Gestão de Projeto</p>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div id="dashboard" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Cards serão inseridos aqui -->
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="text-center py-12">
+            <p class="text-gray-600">Carregando dados...</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="hidden bg-red-50 border-l-4 border-red-500 p-4 mt-8">
+            <p class="text-red-800">Erro ao carregar dados. Verifique se os arquivos CSV estão na pasta public/data/</p>
+        </div>
+
+        <!-- Instructions -->
+        <div class="mt-12 bg-blue-50 rounded-lg p-6 border-l-4 border-blue-500">
+            <h3 class="font-semibold text-blue-900 mb-3">Como atualizar os dados:</h3>
+            <ol class="text-sm text-blue-800 space-y-2 ml-4 list-decimal">
+                <li>Atualize a planilha Google Sheets</li>
+                <li>Exporte cada aba como CSV (metricas.csv, objetivos.csv, infos-gerais.csv)</li>
+                <li>Substitua os arquivos na pasta public/data/ do repositório GitHub</li>
+                <li>Faça commit e push</li>
+                <li>Netlify faz deploy automático em ~30 segundos</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const icons = {
+            tech: '💻',
+            finance: '💰',
+            legal: '⚖️',
+            business: '📊',
+            marketing: '📣',
+            support: '🎧'
+        };
+
+        const colorMap = {
+            blue: 'bg-blue-500',
+            green: 'bg-green-500',
+            purple: 'bg-purple-500',
+            orange: 'bg-orange-500',
+            red: 'bg-red-500',
+            yellow: 'bg-yellow-500'
+        };
+
+        let areasData = {};
+        let expandedArea = null;
+
+        async function loadData() {
+            try {
+                // Carregar os 3 CSVs
+                const [metricas, objetivos, infos] = await Promise.all([
+                    fetch('public/data/metricas.csv').then(r => r.text()),
+                    fetch('public/data/objetivos.csv').then(r => r.text()),
+                    fetch('public/data/infos-gerais.csv').then(r => r.text())
+                ]);
+
+                // Parse CSVs
+                const metricasData = Papa.parse(metricas, { header: true, skipEmptyLines: true }).data;
+                const objetivosData = Papa.parse(objetivos, { header: true, skipEmptyLines: true }).data;
+                const infosData = Papa.parse(infos, { header: true, skipEmptyLines: true }).data;
+
+                // Organizar dados por área
+                infosData.forEach(info => {
+                    const areaName = info.Area || info.Área;
+                    if (!areaName) return;
+
+                    areasData[areaName] = {
+                        name: areaName,
+                        responsible: info.Responsavel || info['Responsável'] || '',
+                        status: info.Status_Geral || 'operational',
+                        color: colorMap[info.Cor] || 'bg-gray-500',
+                        kpis: [],
+                        objectives: []
+                    };
+                });
+
+                // Adicionar métricas
+                metricasData.forEach(metrica => {
+                    const areaName = metrica.Area || metrica['Área'];
+                    if (areasData[areaName]) {
+                        areasData[areaName].kpis.push({
+                            label: metrica.Metrica || metrica['Métrica'],
+                            value: metrica.Valor,
+                            status: metrica.Status || 'normal'
+                        });
+                    }
+                });
+
+                // Adicionar objetivos
+                objetivosData.forEach(objetivo => {
+                    const areaName = objetivo.Area || objetivo['Área'];
+                    if (areasData[areaName]) {
+                        const statusConclusao = objetivo.Status_Conclusao || objetivo['Status_Conclusão'] || '';
+                        areasData[areaName].objectives.push({
+                            text: objetivo.Objetivo,
+                            done: statusConclusao.toLowerCase() === 'concluído' || statusConclusao.toLowerCase() === 'concluido'
+                        });
+                    }
+                });
+
+                document.getElementById('loading').classList.add('hidden');
+                renderDashboard();
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('error').classList.remove('hidden');
+            }
+        }
+
+        function getStatusIcon(status) {
+            if (status === 'operational') return '<span class="text-green-500">✓</span>';
+            if (status === 'attention') return '<span class="text-yellow-500">⚠</span>';
+            return '<span class="text-gray-500">○</span>';
+        }
+
+        function getStatusBadge(status) {
+            const badges = {
+                good: 'bg-green-100 text-green-800',
+                normal: 'bg-yellow-100 text-yellow-800',
+                alert: 'bg-red-100 text-red-800'
+            };
+            return badges[status] || badges.normal;
+        }
+
+        function toggleArea(areaName) {
+            expandedArea = expandedArea === areaName ? null : areaName;
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            Object.values(areasData).forEach(area => {
+                const isExpanded = expandedArea === area.name;
+                
+                const card = document.createElement('div');
+                card.className = 'col-span-1';
+                
+                card.innerHTML = `
+                    <div class="bg-white rounded-lg shadow hover:shadow-xl transition-all cursor-pointer p-6 ${isExpanded ? 'rounded-b-none border-b-2 border-gray-200' : ''}"
+                         onclick="toggleArea('${area.name}')">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="${area.color} p-3 rounded-lg text-white text-2xl">
+                                ${getAreaIcon(area.name)}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${getStatusIcon(area.status)}
+                                <span class="text-gray-400">${isExpanded ? '▲' : '▼'}</span>
+                            </div>
+                        </div>
+                        
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">${area.name}</h3>
+                        <p class="text-sm text-gray-600 mb-4">${area.responsible}</p>
+                        
+                        <div class="space-y-2">
+                            ${area.kpis.slice(0, 2).map(kpi => `
+                                <div class="flex justify-between items-center">
+                                    <span class="text-xs text-gray-600">${kpi.label}</span>
+                                    <span class="text-xs px-2 py-1 rounded font-medium ${getStatusBadge(kpi.status)}">
+                                        ${kpi.value}
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    ${isExpanded ? `
+                        <div class="bg-white rounded-b-lg shadow-xl p-6 border-t-0">
+                            <div class="grid grid-cols-1 gap-6">
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-700 mb-3">Métricas Completas</h4>
+                                    <div class="space-y-2">
+                                        ${area.kpis.map(kpi => `
+                                            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                                                <span class="text-sm text-gray-700">${kpi.label}</span>
+                                                <span class="text-sm px-2 py-1 rounded font-semibold ${getStatusBadge(kpi.status)}">
+                                                    ${kpi.value}
+                                                </span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-700 mb-3">Objetivos Q4 2025</h4>
+                                    <div class="space-y-2">
+                                        ${area.objectives.map(obj => `
+                                            <div class="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                                                <span class="${obj.done ? 'text-green-500' : 'text-yellow-500'}">${obj.done ? '✓' : '○'}</span>
+                                                <span class="text-sm text-gray-700 ${obj.done ? 'line-through opacity-60' : ''}">
+                                                    ${obj.text}
+                                                </span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+                `;
+                
+                dashboard.appendChild(card);
+            });
+        }
+
+        function getAreaIcon(areaName) {
+            const iconMap = {
+                'Tecnologia': '💻',
+                'Financeiro': '💰',
+                'Jurídico': '⚖️',
+                'Negócios': '📊',
+                'Marketing': '📣',
+                'Atendimento': '🎧'
+            };
+            return iconMap[areaName] || '📋';
+        }
+
+        // Carregar dados ao iniciar
+        loadData();
+    </script>
+</body>
+</html>
